@@ -1,0 +1,56 @@
+name: qa
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * *"  # daily regression run, even without changes in this repo
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tests
+        uses: actions/checkout@v4
+
+      - name: Check out the application under test (flask-sql-shop)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/flask-sql-shop
+          path: app
+
+      - name: Start the shop in Docker
+        run: |
+          mkdir -p shop-data
+          docker build -t flask-sql-shop app
+          docker run -d -p 8000:8000 -v "$PWD/shop-data:/app/instance" --name shop flask-sql-shop
+          for i in $(seq 1 30); do curl -fs http://localhost:8000/api/health && break; sleep 1; done
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies and the browser
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run pytest (API, E2E, database)
+        env:
+          SHOP_DB: shop-data/shop.db
+        run: python -m pytest -v --html=report.html --self-contained-html --screenshot=only-on-failure --output=test-results
+
+      - name: Run the Postman collection (newman)
+        if: always()
+        run: npx -y newman@6 run postman/shop-api.postman_collection.json -e postman/local.postman_environment.json
+
+      - name: Upload the test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: |
+            report.html
+            test-results/
