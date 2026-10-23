@@ -1,0 +1,12 @@
+__pycache__/
+.venv/
+venv/
+.pytest_cache/
+report.html
+assets/
+test-results/
+app/
+shop-data/
+*.db
+node_modules/
+newman/
